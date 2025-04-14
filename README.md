@@ -48,3 +48,16 @@ All dependencies are listed in the [`requirements.txt`](requirements.txt) file.
    ```bash
    git clone <repository-url>
    cd <repository-directory>
+
+2. **Setup venv:**
+   ```bash
+    python3 -m venv venv
+    source venv/bin/activate
+
+3. **Install Dependencies:**
+   ```bash
+    pip install -r requirements.txt
+
+4. **Run UI**
+   ```
+   streamlit run app.py
