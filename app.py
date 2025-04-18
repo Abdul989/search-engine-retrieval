@@ -1,5 +1,7 @@
-import streamlit as st
+import sys
 import subprocess
+import streamlit as st
+from pathlib import Path
 from elasticsearch import Elasticsearch
 
 # Set boost mode for the search query (options: "sum", "multiply", "max", etc.)
@@ -8,8 +10,9 @@ BOOST_MODE = "multiply"
 def search_paginated(query, index="books_index", size=20, page=1):
     """
     Performs a paginated search using a function_score query.
-    It uses a multi_match query across several fields and combines the BM25 score with a field value
-    factor on Average_Rating. The 'from' parameter is computed based on the page number.
+    It uses a multi_match query across several fields and combines the BM25 score
+    with a field_value_factor on Average_Rating. The 'from' parameter is computed
+    based on the page number.
     """
     es = Elasticsearch("http://localhost:9200")
     from_value = (page - 1) * size
@@ -32,18 +35,20 @@ def search_paginated(query, index="books_index", size=20, page=1):
                 "field_value_factor": {
                     "field": "Average_Rating",
                     "factor": 0.1,
-                    "modifier": "sqrt",  # Use square-root to moderate the influence of rating
-                    "missing": 1         # Default value if the field is missing
+                    "modifier": "sqrt",  # Moderate the influence of rating
+                    "missing": 1         # Default if field is missing
                 },
-                "boost_mode": BOOST_MODE  # Combine the BM25 score and the rating boost as per BOOST_MODE
+                "boost_mode": BOOST_MODE
             }
         },
         "size": size,
         "from": from_value
     }
     
-    res = es.search(index=index, body=body)
-    return res
+    return es.search(index=index, body=body)
+
+# Resolve project directory once
+PROJECT_DIR = Path(__file__).resolve().parent
 
 st.title("Book Search Engine Dashboard")
 
@@ -53,14 +58,28 @@ action = st.sidebar.selectbox("Select an action", ["Search", "Re-index Data", "E
 
 if action == "Re-index Data":
     st.header("Re-indexing Data")
-    st.write("Starting data indexing. This may take a moment...")
-    # Run the indexing script (assuming index_books.py is in the same directory)
-    result = subprocess.run(["python3", "index_books.py", "books.json"], capture_output=True, text=True)
-    st.code(result.stdout)
+    st.write("Starting data indexing. This may take a moment…")
+
+    index_script = PROJECT_DIR / "index_books.py"
+    books_file   = PROJECT_DIR / "books.json"
+
+    # Run the indexing script with the same Python interpreter
+    result = subprocess.run(
+        [sys.executable, str(index_script), str(books_file)],
+        cwd=str(PROJECT_DIR),
+        capture_output=True,
+        text=True
+    )
+
+    # Display raw output without stderr section
+    st.code(result.stdout or "— no stdout —", language="bash")
+
     if result.returncode == 0:
         st.success("Indexing complete!")
     else:
-        st.error("Indexing encountered an error. Check the logs for details.")
+        # Display just one error area
+        st.text_area("Error Details", result.stderr or "— no stderr —", height=200)
+        st.error("Indexing failed. See the error details above.")
 
 elif action == "Search":
     st.header("Search the Book Index")
@@ -80,33 +99,34 @@ elif action == "Search":
         if hits:
             st.subheader("Search Results")
             for hit in hits:
-                source = hit["_source"]
-                title       = source.get("Title", "N/A")
-                author      = source.get("Author", "N/A")
-                publisher   = source.get("Publisher", "N/A")
-                timestamp   = source.get("timestamp", "N/A")
-                rating      = source.get("Average_Rating", "N/A")
-                description = source.get("Description", "N/A")
-                book_format = source.get("Format", "N/A")
-                score       = hit.get("_score", 0)
-                
-                # Create an expander widget with the clickable title (including the Score)
-                with st.expander(f"{title} (Score: {score:.2f})"):
-                    st.markdown(f"**Author:** {author}")
-                    st.markdown(f"**Publisher:** {publisher}")
-                    st.markdown(f"**Timestamp:** {timestamp}")
-                    st.markdown(f"**Rating:** {rating}")
-                    st.markdown(f"**Description:** {description}")
-                    st.markdown(f"**Format:** {book_format}")
+                src = hit["_source"]
+                score = hit.get("_score", 0)
+                with st.expander(f"{src.get('Title','N/A')} (Score: {score:.2f})"):
+                    st.markdown(f"**Author:** {src.get('Author','N/A')}")
+                    st.markdown(f"**Publisher:** {src.get('Publisher','N/A')}")
+                    st.markdown(f"**Timestamp:** {src.get('timestamp','N/A')}")
+                    st.markdown(f"**Rating:** {src.get('Average_Rating','N/A')}")
+                    st.markdown(f"**Description:** {src.get('Description','N/A')}")
+                    st.markdown(f"**Format:** {src.get('Format','N/A')}")
         else:
             st.warning("No results found for your query.")
 
 elif action == "Evaluation":
     st.header("Evaluation Results")
+    eval_script = PROJECT_DIR / "evaluate.py"
     with st.spinner("Running evaluation..."):
-        result = subprocess.run(["python3", "evaluate.py"], capture_output=True, text=True)
-    st.text_area("Evaluation Output", result.stdout, height=400)
-    if result.returncode != 0:
-        st.error("Evaluation encountered an error. Check the logs for details.")
-    else:
+        result = subprocess.run(
+            [sys.executable, str(eval_script)],
+            cwd=str(PROJECT_DIR),
+            capture_output=True,
+            text=True
+        )
+
+    # Display only stdout for evaluation
+    st.text_area("", result.stdout, height=200)
+
+    if result.returncode == 0:
         st.success("Evaluation complete!")
+    else:
+        st.error("Evaluation encountered an error.")
+
