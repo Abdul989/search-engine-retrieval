@@ -49,15 +49,20 @@ All dependencies are listed in the [`requirements.txt`](requirements.txt) file.
    git clone <repository-url>
    cd <repository-directory>
 
-2. **Setup venv:**
+3. **Start ElasticSearch locally:**
+    If installed using brew the following command will start it up on terminal.
+    ```bash
+    /opt/homebrew/opt/elasticsearch-full/bin/elasticsearch
+    
+5. **Setup venv:**
    ```bash
     python3 -m venv venv
     source venv/bin/activate
 
-3. **Install Dependencies:**
+6. **Install Dependencies:**
    ```bash
     pip install -r requirements.txt
 
-4. **Run UI**
+7. **Run UI**
    ```
    streamlit run app.py
