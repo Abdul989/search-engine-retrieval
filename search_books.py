@@ -1,72 +1,72 @@
-import sys
+import json
+import warnings
 from elasticsearch import Elasticsearch
+from elasticsearch.exceptions import ElasticsearchWarning
 
-# Configure the boost mode here. Options: "sum", "multiply", "max", etc.
-BOOST_MODE = "multiply"  # You can experiment with this value
+# Suppress specific warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=ElasticsearchWarning)
 
-def search(query, index="books_index", size=50):
+def search_books(user_query, size=100):
     """
-    Executes a search against the specified Elasticsearch index using a multi_match query
-    with BM25, additional field boosts, and a field value factor on Average_Rating.
+    Search books using a multi_match query across Title, Author, Publisher.
+    Hybrid Sort: Relevance → Average Rating → Latest Timestamp.
     """
+    if not user_query:
+        print("\nError: Search query cannot be empty.")
+        return []
+
     es = Elasticsearch("http://localhost:9200")
-    
-    body = {
+    index_name = "books_index"  # default index name
+
+    query_body = {
         "query": {
-            "function_score": {
-                "query": {
-                    "multi_match": {
-                        "query": query,
-                        "fields": [
-                            "Title^3",       # Boost the Title field
-                            "Author^2",    # Boost the Author field
-                            "Publisher",
-                            "Description",
-                            "Search_Text"
-                        ]
-                    }
-                },
-                "field_value_factor": {
-                    "field": "Average_Rating",
-                    "factor": 0.1,
-                    "modifier": "sqrt",  # Adjust using the square-root of the rating
-                    "missing": 1         # Default value if the field is missing
-                },
-                "boost_mode": BOOST_MODE  # Combine the BM25 score and the rating boost
+            "multi_match": {
+                "query": user_query,
+                "fields": ["Title^2", "Author^1.5", "Publisher"]
             }
         },
-        "size": size
+        "_source": [
+            "ISBN", "Title", "Author", "timestamp", "Publisher",
+            "Description", "Format", "Num_pages", "Average_Rating"
+        ],
+        "sort": [
+            "_score",
+            {"Average_Rating": {"order": "desc"}},
+            {"timestamp": {"order": "desc"}}
+        ]
     }
-    
-    res = es.search(index=index, body=body)
-    return res
+
+    response = es.search(index=index_name, body=query_body, size=size)
+    results = [hit['_source'] for hit in response['hits']['hits']]
+    return results
+
+
+def display_book(book, idx):
+    print(f"Result {idx}:")
+    print(f"ISBN: {book.get('ISBN', 'N/A')}")
+    print(f"Title: {book.get('Title', 'N/A')}")
+    print(f"Author: {book.get('Author', 'N/A')}")
+    print(f"Publisher: {book.get('Publisher', 'N/A')}")
+    print(f"Description: {book.get('Description', 'N/A')}")
+    print(f"Format: {book.get('Format', 'N/A')}")
+    print(f"Number of Pages: {book.get('Num_pages', 'N/A')}")
+    print(f"Average Rating: {book.get('Average_Rating', 'N/A')}")
+    print(f"Timestamp: {book.get('timestamp', 'N/A')}")
+    print("-" * 50)
+
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python search_books.py 'your search query'")
-        sys.exit(1)
-    
-    query = sys.argv[1]
-    results = search(query)
-    
-    print("Search Results:")
-    for hit in results["hits"]["hits"]:
-        source = hit["_source"]
-        score = hit["_score"]
-        title       = source.get("Title", "N/A")
-        author      = source.get("Author", "N/A")
-        publisher   = source.get("Publisher", "N/A")
-        timestamp   = source.get("timestamp", "N/A")
-        rating      = source.get("Average_Rating", "N/A")
-        description = source.get("Description", "N/A")
-        book_format = source.get("Format", "N/A")
-        
-        print("-"*50)
-        print(f"Title: {title}")
-        print(f"Author: {author}")
-        print(f"Publisher: {publisher}")
-        print(f"Timestamp: {timestamp}")
-        print(f"Rating: {rating}")
-        print(f"Description: {description}")
-        print(f"Format: {book_format}")
-        print(f"Score: {score:.2f}\n")
+    print("\n--- Book Search ---")
+    user_query = input("Enter book info (title, author, or publisher): ").strip()
+
+    print("\nSearching books...\n")
+
+    results = search_books(user_query)  
+
+    if results:
+        print(f"Found {len(results)} result(s):\n")
+        for idx, book in enumerate(results, 1):
+            display_book(book, idx)
+    else:
+        print("No matching books found!")
